@@ -1,5 +1,11 @@
 import { NextResponse } from 'next/server';
 
+// Custom error type
+interface ImageGenerationError extends Error {
+  name: string;
+  status?: number;
+}
+
 // Simple rate limiting
 let lastRequestTime = 0;
 const MIN_REQUEST_INTERVAL = 5000; // 5 seconds between requests
@@ -47,7 +53,9 @@ async function generateSingleImage(prompt: string, retries: number, baseDelay: n
             continue;
           }
           
-          throw new Error(`HTTP error! status: ${response.status}`);
+          const error = new Error(`HTTP error! status: ${response.status}`) as ImageGenerationError;
+          error.status = response.status;
+          throw error;
         }
 
         // Get the response as an ArrayBuffer
@@ -60,20 +68,24 @@ async function generateSingleImage(prompt: string, retries: number, baseDelay: n
         console.log('Generated image URL');
 
         return imageUrl;
-      } catch (error: any) {
-        if (error.name === 'AbortError') {
-          throw new Error('Request timed out');
-        }
+      } catch (error: unknown) {
+        if (error instanceof Error) {
+          if (error.name === 'AbortError') {
+            throw new Error('Request timed out');
+          }
 
-        console.error('Error generating image:', error);
-        retries--;
-        
-        if (retries === 0) {
-          throw error;
+          console.error('Error generating image:', error);
+          retries--;
+          
+          if (retries === 0) {
+            throw error;
+          } else {
+            // Wait before retrying with exponential backoff
+            await delay(baseDelay);
+            baseDelay *= 2;
+          }
         } else {
-          // Wait before retrying with exponential backoff
-          await delay(baseDelay);
-          baseDelay *= 2;
+          throw new Error('An unknown error occurred');
         }
       }
     }
@@ -111,8 +123,10 @@ export async function POST(req: Request) {
           5000
         );
         imageUrls.push(imageUrl);
-      } catch (error) {
-        console.error(`Error generating image ${i + 1}:`, error);
+      } catch (error: unknown) {
+        if (error instanceof Error) {
+          console.error(`Error generating image ${i + 1}:`, error);
+        }
         // Continue with next image even if one fails
       }
     }
@@ -123,8 +137,10 @@ export async function POST(req: Request) {
       imageUrls,
       status: 'success'
     });
-  } catch (error) {
-    console.error('Error in image generation:', error);
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      console.error('Error in image generation:', error);
+    }
     return NextResponse.json({
       success: false,
       error: 'Failed to generate images',
