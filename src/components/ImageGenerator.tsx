@@ -104,11 +104,11 @@ export default function ImageGenerator({ onSubmit, isLoading }: ImageGeneratorPr
             onChange={(e) => setSize(e.target.value)}
             className="block w-full rounded-2xl border-2 border-purple-100 bg-white/80 shadow-sm text-gray-800 p-4 backdrop-blur-sm transition-all duration-300 focus:outline-none focus:border-purple-300 focus:ring-2 focus:ring-purple-200 focus:shadow-[0_0_15px_rgba(168,85,247,0.2)] focus:scale-[1.01]"
           >
-            <option value="1x1">1" x 1" (Minimal)</option>
-            <option value="2x2">2" x 2" (Small)</option>
-            <option value="3x3">3" x 3" (Medium)</option>
-            <option value="4x4">4" x 4" (Large)</option>
-            <option value="5x5">5" x 5" (Extra Large)</option>
+            <option value="1x1">1&quot; x 1&quot; (Minimal)</option>
+            <option value="2x2">2&quot; x 2&quot; (Small)</option>
+            <option value="3x3">3&quot; x 3&quot; (Medium)</option>
+            <option value="4x4">4&quot; x 4&quot; (Large)</option>
+            <option value="5x5">5&quot; x 5&quot; (Extra Large)</option>
           </select>
         </div>
 
