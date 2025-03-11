@@ -3,8 +3,9 @@ import { NextResponse } from 'next/server';
 // Simple rate limiting
 let lastRequestTime = 0;
 const MIN_REQUEST_INTERVAL = 5000; // 5 seconds between requests
-const NUM_IMAGES = 3; // Number of images to generate
-const TIMEOUT = 50000; // 50 second timeout
+const NUM_IMAGES = 2; // Reduced from 3 to 2 images
+const TIMEOUT = 25000; // 25 second timeout for each request
+const DELAY_BETWEEN_IMAGES = 3000; // 3 seconds between image generations
 
 async function delay(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -95,41 +96,28 @@ export async function POST(req: Request) {
     }
     lastRequestTime = Date.now();
 
-    // Adjust complexity based on size
-    let sizeConstraints = '';
-    switch (size) {
-      case '1x1':
-        sizeConstraints = 'maximum 5 lines total, maximum 1 circle, extremely minimal design, ultra simple composition, minimal detail, maximum 2-3 elements total, use only 20% of the image space, rest should be blank with no elements, tiny design in the center';
-        break;
-      case '2x2':
-        sizeConstraints = 'maximum 8 lines total, maximum 2 circles, very simple design, minimal composition, minimal detail, maximum 3-4 elements total, use only 30% of the image space, small design in the center';
-        break;
-      case '3x3':
-        sizeConstraints = 'maximum 12 lines total, maximum 3 circles, simple design, balanced composition, moderate detail, maximum 4-5 elements total, use only 40% of the image space, medium design in the center';
-        break;
-      case '4x4':
-        sizeConstraints = 'maximum 15 lines total, maximum 4 circles, balanced design, moderate composition, moderate detail, maximum 5-6 elements total, use only 50% of the image space, balanced design in the center';
-        break;
-      case '5x5':
-        sizeConstraints = 'maximum 20 lines total, maximum 5 circles, balanced design, moderate composition, moderate detail, maximum 6-7 elements total, use only 60% of the image space, larger design in the center';
-        break;
-      default:
-        sizeConstraints = 'maximum 12 lines total, maximum 3 circles, simple design, balanced composition, moderate detail, maximum 4-5 elements total, use only 40% of the image space, medium design in the center';
+    // Generate images sequentially instead of in parallel
+    const imageUrls = [];
+    for (let i = 0; i < NUM_IMAGES; i++) {
+      try {
+        // Add delay between generations
+        if (i > 0) {
+          await delay(DELAY_BETWEEN_IMAGES);
+        }
+        
+        const imageUrl = await generateSingleImage(
+          `${prompt}, pure white background, only circles and straight lines allowed, ${getSizeConstraints(size)}`,
+          2, // Reduced retries
+          5000
+        );
+        imageUrls.push(imageUrl);
+      } catch (error) {
+        console.error(`Error generating image ${i + 1}:`, error);
+        // Continue with next image even if one fails
+      }
     }
 
-    // Enhance the prompt for tattoo design
-    const enhancedPrompt = `${prompt}, pure white background, only circles and straight lines allowed, ${sizeConstraints}, ultra minimal design, extremely simple geometric composition, clean white background, no shading, no color, no details, no background elements, no textures, no gradients, no crosshatching, no stippling, no dotwork, no watercolor effects, no realistic elements, no 3D effects, no perspective, flat design, iconic style, timeless tattoo design, classic flash art tattoo sketch, extremely simplified version, minimal detail, bold and clean, easy to tattoo, tattoo artist friendly, simple enough to be recognizable from a distance, iconic and memorable with minimal elements, like drawn with a single pen in one continuous motion, hand sketched quality, organic line work, imperfect but charming, like a quick doodle, extremely basic and simple, like drawn by a human hand in 5 seconds, pure geometric minimalism, clean white background, no extra elements, no decorative details, no ornamental elements, no complex patterns, no intricate details, no fine lines, no thin lines, no small elements, no tiny details, no small shapes, no complex shapes, no overlapping shapes, no intersecting lines, no crossing lines, no curved lines except circles, only circles and straight lines, basic geometric forms, elementary shapes, fundamental shapes, primitive shapes, essential shapes only, pure geometric minimalism, absolute minimalism, extreme simplicity, pure white background, clean white space, empty white background, solid white background, clean white background, minimalist geometric composition, leave plenty of empty space, use minimal space, design should be small and centered, avoid filling the entire space, keep the design compact and minimal, leave white space around the design, design should float in the center with empty space around it, minimal use of canvas space, design should be small and elegant, leave generous white space, design should be contained and not spread out`;
-
-    // Generate multiple images in parallel
-    const imagePromises = Array(NUM_IMAGES).fill(null).map((_, index) => {
-      // Add a small delay between each image generation to avoid rate limits
-      return delay(index * 2000).then(() => 
-        generateSingleImage(enhancedPrompt, 3, 5000)
-      );
-    });
-
-    const imageUrls = await Promise.all(imagePromises);
-
+    // Return whatever images we successfully generated
     return NextResponse.json({
       success: true,
       imageUrls,
@@ -142,5 +130,25 @@ export async function POST(req: Request) {
       error: 'Failed to generate images',
       status: 'error'
     }, { status: 500 });
+  }
+}
+
+// Separate function for size constraints
+function getSizeConstraints(size: string): string {
+  const baseConstraints = 'ultra minimal design, extremely simple geometric composition, clean white background, no shading, no color, no details, no background elements, no textures, no gradients, no crosshatching, no stippling, no dotwork, no watercolor effects, no realistic elements, no 3D effects, no perspective, flat design, iconic style, timeless tattoo design, classic flash art tattoo sketch, extremely simplified version, minimal detail, bold and clean, easy to tattoo, tattoo artist friendly, simple enough to be recognizable from a distance, iconic and memorable with minimal elements, like drawn with a single pen in one continuous motion, hand sketched quality, organic line work, imperfect but charming, like a quick doodle, extremely basic and simple, like drawn by a human hand in 5 seconds, pure geometric minimalism, clean white background, no extra elements, no decorative details, no ornamental elements, no complex patterns, no intricate details, no fine lines, no thin lines, no small elements, no tiny details, no small shapes, no complex shapes, no overlapping shapes, no intersecting lines, no crossing lines, no curved lines except circles, only circles and straight lines, basic geometric forms, elementary shapes, fundamental shapes, primitive shapes, essential shapes only, pure geometric minimalism, absolute minimalism, extreme simplicity, pure white background, clean white space, empty white background, solid white background, clean white background, minimalist geometric composition, leave plenty of empty space, use minimal space, design should be small and centered, avoid filling the entire space, keep the design compact and minimal, leave white space around the design, design should float in the center with empty space around it, minimal use of canvas space, design should be small and elegant, leave generous white space, design should be contained and not spread out';
+
+  switch (size) {
+    case '1x1':
+      return `maximum 5 lines total, maximum 1 circle, extremely minimal design, ultra simple composition, minimal detail, maximum 2-3 elements total, use only 20% of the image space, rest should be blank with no elements, tiny design in the center, ${baseConstraints}`;
+    case '2x2':
+      return `maximum 8 lines total, maximum 2 circles, very simple design, minimal composition, minimal detail, maximum 3-4 elements total, use only 30% of the image space, small design in the center, ${baseConstraints}`;
+    case '3x3':
+      return `maximum 12 lines total, maximum 3 circles, simple design, balanced composition, moderate detail, maximum 4-5 elements total, use only 40% of the image space, medium design in the center, ${baseConstraints}`;
+    case '4x4':
+      return `maximum 15 lines total, maximum 4 circles, balanced design, moderate composition, moderate detail, maximum 5-6 elements total, use only 50% of the image space, balanced design in the center, ${baseConstraints}`;
+    case '5x5':
+      return `maximum 20 lines total, maximum 5 circles, balanced design, moderate composition, moderate detail, maximum 6-7 elements total, use only 60% of the image space, larger design in the center, ${baseConstraints}`;
+    default:
+      return `maximum 12 lines total, maximum 3 circles, simple design, balanced composition, moderate detail, maximum 4-5 elements total, use only 40% of the image space, medium design in the center, ${baseConstraints}`;
   }
 } 
