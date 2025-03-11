@@ -4,69 +4,82 @@ import { NextResponse } from 'next/server';
 let lastRequestTime = 0;
 const MIN_REQUEST_INTERVAL = 5000; // 5 seconds between requests
 const NUM_IMAGES = 3; // Number of images to generate
+const TIMEOUT = 50000; // 50 second timeout
 
 async function delay(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 async function generateSingleImage(prompt: string, retries: number, baseDelay: number): Promise<string> {
-  while (retries > 0) {
-    try {
-      console.log('Starting image generation... (attempts left:', retries, ')');
-      
-      const response = await fetch(
-        `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${process.env.CLOUDFLARE_API_TOKEN}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            prompt: prompt
-          })
-        }
-      );
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), TIMEOUT);
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('API Error:', errorText);
+  try {
+    while (retries > 0) {
+      try {
+        console.log('Starting image generation... (attempts left:', retries, ')');
         
-        if (response.status === 429) {
-          // Rate limit hit - wait longer
+        const response = await fetch(
+          `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${process.env.CLOUDFLARE_API_TOKEN}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              prompt: prompt
+            }),
+            signal: controller.signal
+          }
+        );
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('API Error:', errorText);
+          
+          if (response.status === 429) {
+            // Rate limit hit - wait longer
+            await delay(baseDelay);
+            baseDelay *= 2; // Exponential backoff
+            retries--;
+            continue;
+          }
+          
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        // Get the response as an ArrayBuffer
+        const arrayBuffer = await response.arrayBuffer();
+        console.log('Received image data');
+
+        // Convert ArrayBuffer to base64
+        const base64 = Buffer.from(arrayBuffer).toString('base64');
+        const imageUrl = `data:image/png;base64,${base64}`;
+        console.log('Generated image URL');
+
+        return imageUrl;
+      } catch (error: any) {
+        if (error.name === 'AbortError') {
+          throw new Error('Request timed out');
+        }
+
+        console.error('Error generating image:', error);
+        retries--;
+        
+        if (retries === 0) {
+          throw error;
+        } else {
+          // Wait before retrying with exponential backoff
           await delay(baseDelay);
-          baseDelay *= 2; // Exponential backoff
-          retries--;
-          continue;
+          baseDelay *= 2;
         }
-        
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      // Get the response as an ArrayBuffer
-      const arrayBuffer = await response.arrayBuffer();
-      console.log('Received image data');
-
-      // Convert ArrayBuffer to base64
-      const base64 = Buffer.from(arrayBuffer).toString('base64');
-      const imageUrl = `data:image/png;base64,${base64}`;
-      console.log('Generated image URL');
-
-      return imageUrl;
-    } catch (error) {
-      console.error('Error generating image:', error);
-      retries--;
-      
-      if (retries === 0) {
-        throw error;
-      } else {
-        // Wait before retrying with exponential backoff
-        await delay(baseDelay);
-        baseDelay *= 2;
       }
     }
+    throw new Error('Failed to generate image after all retries');
+  } finally {
+    clearTimeout(timeoutId);
   }
-  throw new Error('Failed to generate image after all retries');
 }
 
 export async function POST(req: Request) {
